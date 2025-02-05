@@ -16,11 +16,9 @@ graph TD
     B -->|No| C[Process as a New File]
     B -->|Yes| D{Has File Been Modified?}
     
-    %% Handling Modified Files %%
     D -->|Yes| E[Delete Existing Vector Entries]
     E --> C  %% Continue Processing as New
     
-    %% Processing New or Modified Files %%
     C --> F[Generate File Embeddings]
     F --> G[Store Embeddings in Pinecone]
     G --> H{Embedding Upload Successful?}
@@ -28,12 +26,10 @@ graph TD
     H -->|Yes| I[Update JSON Index with File Metadata]
     H -->|No| J[Mark File as Error in JSON]
     
-    %% Handling Deleted Files %%
     K[Check for Deleted Files] --> L{File Missing in Source?}
     L -->|Yes| M[Delete Vector Embeddings from Pinecone]
     M --> N[Remove File Entry from JSON Index]
     
-    %% Completion %%
     I --> O[Update Complete 🎉]
     J --> O
     N --> O
