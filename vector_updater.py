@@ -1,3 +1,5 @@
+
+import sys
 import time
 from datetime import datetime
 from main import (  # Reuse core logic from original
@@ -33,7 +35,19 @@ def update_files():
         console.print(f"Update failed: {str(e)}")
         raise  # Preserve stack trace
 
+def wait_or_pull(interval=3600):
+    """Waits for the interval, but allows manual execution with 'pull' or quitting with 'q'."""
+    start_time = time.time()
+    while time.time() - start_time < interval:
+        user_input = input("Type 'pull' to run immediately or 'q' to quit: ").strip().lower()
+        if user_input == "pull":
+            return  # Exit wait early and trigger update immediately
+        elif user_input == "q":
+            print("Exiting program...")
+            sys.exit(0)  # Exit gracefully
+        time.sleep(1)  # Small sleep to avoid constant CPU usage
+
 if __name__ == "__main__":
     while True:
         update_files()
-        time.sleep(3600)  # 1 hour
+        wait_or_pull()  # Wait for an hour, but allow manual trigger or quit
