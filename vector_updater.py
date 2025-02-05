@@ -2,7 +2,8 @@ import time
 from datetime import datetime
 from main import (  # Reuse core logic from original
     poll_drive_folder, process_file,
-    load_processed_files, save_processed_files
+    load_processed_files, save_processed_files,
+    save_processed_files, delete_vectors, console,  # Reuse core logic from original
 )
 
 def update_files():
@@ -10,20 +11,27 @@ def update_files():
     processed = load_processed_files()
     
     try:
-        new_files = [
-            f for f in poll_drive_folder()
-            if f['id'] not in processed
-        ]
+        # Get current files with empty list fallback
+        current_files = poll_drive_folder() or []
+        current_ids = {f['id'] for f in current_files}
         
-        for file in new_files:
-            process_file(file)
-            processed.append(file['id'])
-            save_processed_files(processed)
-            
-        print(f"Processed {len(new_files)} new files")
+        # Handle deletions
+        for file_id in list(processed.keys()):
+            if file_id not in current_ids:
+                console.print(f"Deleting vectors for removed file: {file_id}")
+                if delete_vectors(file_id):
+                    del processed[file_id]
+                    save_processed_files(processed)
         
+        # Process new/updated files
+        for file in current_files:
+            existing = processed.get(file['id'])
+            if not existing or file['modifiedTime'] > existing['modified']:
+                process_file(file)
+                
     except Exception as e:
-        print(f"Update failed: {str(e)}")
+        console.print(f"Update failed: {str(e)}")
+        raise  # Preserve stack trace
 
 if __name__ == "__main__":
     while True:

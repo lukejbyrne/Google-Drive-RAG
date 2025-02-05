@@ -67,21 +67,16 @@ palm.configure(api_key=GOOGLE_GEMINI_API_KEY)
 # File used to track processed files (to avoid re‑processing)
 PROCESSED_FILES_PATH = "processed_files.json"
 
-# Update the processed_files functions to use a dictionary structure:
 def load_processed_files():
-    """
-    Returns a dictionary mapping file_id to its last processed modifiedTime.
-    """
+    """Returns dict with file_id keys and vector_ids lists"""
     if os.path.exists(PROCESSED_FILES_PATH):
         with open(PROCESSED_FILES_PATH, "r") as f:
             return json.load(f)
-    else:
-        return {}  # file_id -> modifiedTime
+    return {}
 
 def save_processed_files(processed):
     with open(PROCESSED_FILES_PATH, "w") as f:
         json.dump(processed, f, indent=2)
-
 
 # -------------------------------
 # Google Drive Download Function
@@ -164,15 +159,21 @@ def get_embedding(text: str) -> list:
 # -------------------------------
 
 def process_file(file: dict):
+    # --- Display which file we're processing ---
     console.rule(f"[bold blue]Processing File: {file['name']}")
+    
+    # --- Download file content ---
     content = download_file(file["id"], file["name"])
     if not content:
         console.print(f"[red]No content downloaded for file: {file['name']}[/red]")
         return
+    
     console.print("[green]File downloaded. Splitting text...[/green]")
     chunks = split_text(content)
     console.print(f"[green]Text split into {len(chunks)} chunks. Processing chunks...[/green]")
-    
+
+    # --- Prepare progress bar for chunk embedding & upsert ---
+    vector_ids = []
     with Progress(
         "[progress.description]{task.description}",
         BarColumn(),
@@ -180,27 +181,52 @@ def process_file(file: dict):
         transient=True,
     ) as progress:
         task = progress.add_task("Embedding & Upserting chunks", total=len(chunks))
+        
+        # --- Iterate over chunks, embed, and upsert to Pinecone ---
         for i, chunk in enumerate(chunks):
             embedding = get_embedding(chunk)
             if embedding is None:
                 continue
-            # Create a unique vector ID based on the file and chunk index
+            
+            # Create a unique vector ID and store it
             vector_id = f"{file['id']}_{i}"
+            vector_ids.append(vector_id)
+            
+            # Build metadata
             metadata = {
                 "file_id": file["id"],
                 "file_name": file["name"],
                 "chunk_index": i,
                 "text": chunk[:200]  # store a preview (first 200 characters)
             }
+            
+            # Attempt upsert to Pinecone
             try:
                 index.upsert(
-                    vectors=[{"id": vector_id, "values": embedding, "metadata": metadata}],
+                    vectors=[
+                        {
+                            "id": vector_id,
+                            "values": embedding,
+                            "metadata": metadata
+                        }
+                    ],
                     namespace="default"
                 )
             except Exception as e:
                 console.print(f"[red]Error upserting vector: {e}[/red]")
+            
             time.sleep(0.1)  # slight delay to avoid rate limits
             progress.advance(task)
+    
+    # --- Update processed-files record with vector details ---
+    processed = load_processed_files()
+    processed[file['id']] = {
+        "modified": file["modifiedTime"],
+        "vectors": vector_ids,
+        "name": file["name"]
+    }
+    save_processed_files(processed)
+
     console.print("[bold green]File processing complete and added to Pinecone vector store.[/bold green]\n")
 
 
@@ -277,68 +303,45 @@ def chat_agent(query: str) -> str:
 
 
 # -------------------------------
+# Enhanced Deletion Logic
+# -------------------------------
+
+def delete_vectors(file_id: str):
+    """Handle vector deletion through multiple strategies"""
+    processed = load_processed_files()
+    file_data = processed.get(file_id, {})
+    
+    # Strategy 1: Delete by known vector IDs
+    if file_data.get('vectors'):
+        try:
+            index.delete(ids=file_data['vectors'], namespace="default")
+            console.print(f"Deleted {len(file_data['vectors'])} vectors for {file_id}")
+            return True
+        except Exception as e:
+            console.print(f"[red]Vector ID deletion failed: {e}[/red]")
+
+    # Strategy 2: Fallback to metadata filter
+    try:
+        index.delete(filter={"file_id": {"$eq": file_id}}, namespace="default")
+        console.print(f"Used metadata filter deletion for {file_id}")
+        return True
+    except Exception as e:
+        console.print(f"[red]Metadata filter deletion failed: {e}[/red]")
+        return False
+
+
+# -------------------------------
 # Poll Google Drive Folder for Files
 # -------------------------------
 
 def poll_drive_folder():
-    """
-    Polls the Google Drive folder and ensures that the Pinecone vector store 
-    reflects the exact state of the folder. It handles:
-      - New files: processes and adds vectors.
-      - Updated files: deletes old vectors and reprocesses.
-      - Deleted files: deletes vectors associated with files that no longer exist.
-    """
-    # Build the query to list all non-trashed files in the target folder
-    query = f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+    """Returns empty list instead of None on failure"""
     try:
         results = drive_service.files().list(
-            q=query, fields="files(id, name, modifiedTime)"
+            q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+            fields="files(id, name, modifiedTime)"
         ).execute()
-        files = results.get("files", [])
-        if not files:
-            console.print("[yellow]No files found in the folder.[/yellow]")
+        return results.get("files", [])
     except Exception as e:
-        console.print(f"[red]Error polling Google Drive folder: {e}[/red]")
-        return
-
-    # Load the dictionary of processed files (file_id -> modifiedTime)
-    processed_files = load_processed_files()
-    # Build a set of file IDs currently in the folder
-    current_file_ids = {file["id"] for file in files}
-
-    # Process new or updated files
-    for file in files:
-        file_id = file["id"]
-        current_modified_time = file["modifiedTime"]
-
-        # Determine if this is a new or updated file.
-        if file_id not in processed_files or current_modified_time > processed_files[file_id]:
-            if file_id in processed_files:
-                console.print(f"[blue]Updated file detected: {file['name']} (ID: {file_id}). Reprocessing...[/blue]")
-                # Delete previous vectors for this file from Pinecone.
-                try:
-                    index.delete(filter={"file_id": file_id}, namespace="default")
-                    console.print(f"[yellow]Deleted old vectors for file ID: {file_id}[/yellow]")
-                except Exception as e:
-                    console.print(f"[red]Error deleting old vectors for file ID {file_id}: {e}[/red]")
-            else:
-                console.print(f"[green]New file detected: {file['name']} (ID: {file_id})[/green]")
-            
-            # Process the file (download, split, embed, and upsert vectors)
-            process_file(file)
-            # Record the file's current modifiedTime
-            processed_files[file_id] = current_modified_time
-
-    # Handle deleted files: find file IDs that were processed previously but are now missing
-    deleted_file_ids = set(processed_files.keys()) - current_file_ids
-    for file_id in deleted_file_ids:
-        console.print(f"[magenta]File deleted (ID: {file_id}). Removing its vectors.[/magenta]")
-        try:
-            index.delete(filter={"file_id": file_id}, namespace="default")
-        except Exception as e:
-            console.print(f"[red]Error deleting vectors for deleted file ID {file_id}: {e}[/red]")
-        # Remove the file entry from the processed files dictionary
-        del processed_files[file_id]
-
-    # Save the updated processed_files dictionary
-    save_processed_files(processed_files)
+        console.print(f"[red]Drive polling error: {e}[/red]")
+        return []  # Critical fix for NoneType iteration
