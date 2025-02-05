@@ -17,7 +17,7 @@ graph TD
     B -->|Yes| D{Has File Been Modified?}
     
     D -->|Yes| E[Delete Existing Vector Entries]
-    E --> C  %% Continue Processing as New
+    E --> C 
     
     C --> F[Generate File Embeddings]
     F --> G[Store Embeddings in Pinecone]
