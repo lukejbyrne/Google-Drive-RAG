@@ -1,104 +1,65 @@
-# Chat with Company Docs (RAG-based)
+# Google Drive to Pinecone Vector Indexer
 
-This project enables conversational interaction with company documents using **Retrieval-Augmented Generation (RAG)**. It processes files, updates vector storage, and manages document modifications efficiently.
+This project integrates Google Drive with Pinecone, enabling real-time indexing of text files from a specified folder. It uses Google's Generative AI for text summarization and Pinecone for vector storage and search.
 
-## 🚀 Features
-- **Retrieval-Augmented Generation (RAG)** for answering queries from company docs.
-- **Automated file processing** (new, modified, and deleted files).
-- **Vector embedding updates** via Pinecone.
-- **Error handling** for failed document updates.
+## Key Features
 
-## 📜 **Key Flow - Detailed Breakdown**
+- Automatically indexes text files from a Google Drive folder.
+- Uses Google's Generative AI for text summarization.
+- Stores file metadata and summarized text vectors in Pinecone.
+- Supports incremental updates by tracking processed files.
 
-```mermaid
-graph TD
-    A[Start Update] --> B{File exists in JSON index?}
-    B -->|No| C[Process as a New File]
-    B -->|Yes| D{Has File Been Modified?}
-    
-    D -->|Yes| E[Delete Existing Vector Entries]
-    E --> C 
-    
-    C --> F[Generate File Embeddings]
-    F --> G[Store Embeddings in Pinecone]
-    G --> H{Embedding Upload Successful?}
-    
-    H -->|Yes| I[Update JSON Index with File Metadata]
-    H -->|No| J[Mark File as Error in JSON]
-    
-    K[Check for Deleted Files] --> L{File Missing in Source?}
-    L -->|Yes| M[Delete Vector Embeddings from Pinecone]
-    M --> N[Remove File Entry from JSON Index]
-    
-    I --> O[Update Complete 🎉]
-    J --> O
-    N --> O
-```
+## Installation
 
-### **Granular Code Execution Steps**
+1. Install Python 3.8 or higher.
+2. Create a new virtual environment (optional but recommended):
+   ```
+   python -m venv venv
+   source venv/bin/activate
+   ```
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+4. Create a `.env` file in the project root directory with the following content:
+   ```
+   GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account-file.json
+   PINECONE_API_KEY=your-pinecone-api-key
+   PINECONE_INDEX_NAME=your-pinecone-index-name
+   DRIVE_FOLDER_ID=your-google-drive-folder-id
+   GROQ_API_KEY=your-groq-api-key
+   ```
 
-#### **Step 1: Checking the JSON Index**
-- The system first checks if the file exists in the **JSON index** (which tracks processed files).
-- If it's **not found**, it's treated as **new** and moves to the embedding stage.
-- If the file **already exists**, the system checks if it has changed.
+## Usage
 
-#### **Step 2: Handling Modified Files**
-- If a file **has been modified**, its **old vector embeddings** are **deleted** from Pinecone.
-- It is then **reprocessed** as if it were a new file.
+1. Run the main indexing script:
+   ```
+   python main.py
+   ```
+2. Run the vector updater script to update existing files:
+   ```
+   python vector_updater.py
+   ```
 
-#### **Step 3: Processing New or Modified Files**
-- **Embeddings are generated** for the file.
-- These **embeddings are sent to Pinecone** for storage.
-- If **successful**, the JSON index is updated.
-- If **unsuccessful**, the file is marked as an **error** in JSON.
+## Contributing
 
-#### **Step 4: Handling Deleted Files**
-- The system checks if any **previously processed files** have been **deleted** from the source directory.
-- If a file is **missing**, its **vector embeddings** are **removed** from Pinecone.
-- The JSON index is updated to **remove the file entry**.
+Contributions are welcome! Please open an issue or submit a pull request.
 
-#### **Step 5: Finalizing the Update**
-- The system marks the update as **complete** and logs the results.
+## License
 
-## 🛠️ Setup
+This project is licensed under the MIT License.
 
-### 1️⃣ Install Dependencies
-Ensure you have Python 3.8+ installed, then run:
+## Acknowledgments
 
-```sh
-pip install -r requirements.txt
-```
+- [Google Drive API](https://developers.google.com/drive/api)
+- [Pinecone](https://www.pinecone.io/)
+- [Google Generative AI](https://generativeai.google/)
+- [Groq Python client](https://github.com/groq-lang/groq-python)
+- [Rich](https://github.com/willmcgugan/rich) for console output
+- [python-dotenv](https://github.com/theskumar/python-dotenv) for managing environment variables
 
-### 2️⃣ Configure Environment Variables
-Create a `.env` file and add:
+## Badges
 
-```
-PINECONE_API_KEY=your_pinecone_key
-GOOGLE_API_KEY=your_google_key
-```
+[![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-### 3️⃣ Run the System
-Start the chat interface with:
-
-```sh
-python main.py
-```
-
-## 📂 File Structure
-- `main.py` - Entry point for the chat system.
-- `chat_interface.py` - Handles chat interactions.
-- `vector_updater.py` - Manages file embedding and vector updates.
-- `requirements.txt` - Dependencies list.
-
-## 🔧 How It Works
-1. **New files** are processed and embedded into the vector database.
-2. **Modified files** trigger vector deletion and re-embedding.
-3. **Deleted files** remove corresponding vectors.
-4. The system updates a JSON index tracking processed files.
-
-## 🛠️ Tech Stack
-- **LLM APIs:** Google Generative AI / Groq
-- **Vector Storage:** Pinecone
-- **Auth & API Handling:** Google API, Requests
-- **Env Management:** dotenv
-- **Logging & Debugging:** Rich
+Note: This README is a brief overview, and the actual project may have additional features or documentation.
